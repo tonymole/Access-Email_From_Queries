@@ -1,0 +1,160 @@
+Option Compare Database
+
+Sub EmailQueriesAsHTMLTables()
+
+    Dim OutApp As Object
+    Dim OutMail As Object
+    Dim Signature As String
+    Dim inlineImg As Outlook.Attachment
+    Dim HTML As String
+    
+    Dim strSQL1 As String
+    Dim strSQL2 As String
+    
+    strSQL1 = "SELECT Branch, Quantity, Sum(Sales) As [Total Sales] " & _
+                "From SuperMarketSales " & _
+                "Group BY Branch, Quantity " & _
+                "HAVING Quantity > 7"
+
+    strSQL2 = "SELECT City, Quantity, Sum(Sales) As [Total Sales] " & _
+                "From SuperMarketSales " & _
+                "Group BY City, Quantity " & _
+                "HAVING Quantity > 7"
+
+    '--- Generate HTML tables from queries ---
+    Dim Table1 As String
+    Dim Table2 As String
+
+    '--- Uses an Access Query ---
+    '    Table1 = BuildHTMLTableFromQuery("qBranchSales")
+    '    Table2 = BuildHTMLTableFromQuery(qCitySales)
+    '--- Use an SQL Statement ---
+    Table1 = BuildHTMLTableFromQuery(strSQL1)
+    Table2 = BuildHTMLTableFromQuery(strSQL2)
+    
+    '--- Get Outlook signature ---
+    Signature = GetOutlookSignature()
+
+    '--- Build the final email body ---
+    HTML = ""
+    HTML = "<p>Hello,</p>"
+    HTML = HTML & "<p>Please review the details below:</p>"
+
+    '--- Bulleted list (Outlook-safe) ---
+    HTML = HTML & "<div style='margin-left:20px;'>"
+    HTML = HTML & "<ul style='margin:0;padding-left:18px;'>"
+    HTML = HTML & "<li style='margin-bottom:4px;'>Report is attached</li>"
+    HTML = HTML & "<li style='margin-bottom:4px;'>Data updated as of yesterday</li>"
+    HTML = HTML & "<li style='margin-bottom:4px;'>Charts refreshed automatically</li>"
+    HTML = HTML & "</ul>"
+    HTML = HTML & "</div>"
+    
+    HTML = HTML & "<p><img src=""cid:Chart001"" width=""200"" height=""150"" style=""display:block;"" /></p>"
+
+    HTML = HTML & "<p><b>Results for Query 1:</b></p>"
+    HTML = HTML & Table1
+        
+    HTML = HTML & "<p><b>Results for Query 2:</b></p>"
+    HTML = HTML & Table2
+
+    HTML = HTML & "<p>Please contact me with any questions.</p>"
+    HTML = HTML & Signature
+
+    '--- Send email ---
+    Set OutApp = CreateObject("Outlook.Application")
+    Set OutMail = OutApp.CreateItem(0)
+    
+    '--- Add the inline image ---
+    Set inlineImg = OutMail.Attachments.Add("C:\Users\tonym\Images\School_Lane.jpg")
+
+    ' --- Assign Content-ID for referencing in HTML ---
+    inlineImg.PropertyAccessor.SetProperty _
+        "http://schemas.microsoft.com/mapi/proptag/0x3712001E", "Chart001"
+
+    With OutMail
+        .To = "recipient@example.com"
+        .Subject = "Multiple Query Results"
+        .HTMLBody = HTML
+        .Attachments.Add "C:\Users\tonym\OneDrive\Documents\TestDoc.docx"
+        .Attachments.Add "C:\Users\tonym\OneDrive\Documents\TestXLSX.xlsx"
+        .Display     'change to .Send to send automatically
+    End With
+    
+
+
+End Sub
+
+Function BuildHTMLTableFromQuery(QueryName As String) As String
+    Dim rs As DAO.Recordset
+    Dim fld As DAO.Field
+    Dim HTML As String
+    Dim colIndex As Integer
+
+    '--- Uses an Access Query ---
+    '    Set rs = CurrentDb.OpenRecordset("SELECT * FROM [" & QueryName & "]")
+    '--- Use an SQL Statement ---
+    Set rs = CurrentDb.OpenRecordset(QueryName)
+
+    HTML = "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;font-family:Calibri;font-size:11pt;'>"
+
+    ' Header row
+    HTML = HTML & "<tr style='background-color:#f0f0f0;'>"
+    For Each fld In rs.Fields
+        HTML = HTML & "<th>" & fld.Name & "</th>"
+    Next fld
+    HTML = HTML & "</tr>"
+
+    ' Data rows
+    Do While Not rs.EOF
+        HTML = HTML & "<tr>"
+        colIndex = 0
+        For Each fld In rs.Fields
+            Dim cellValue As String
+            cellValue = Nz(fld.Value, "")
+
+            ' Format columns
+            Select Case colIndex
+                Case 0, 1 ' Right align
+                    HTML = HTML & "<td style='text-align:right;'>" & cellValue & "</td>"
+                Case 2 ' Currency format
+                    If IsNumeric(cellValue) Then
+                        HTML = HTML & "<td style='text-align:right;'>" & Format(cellValue, "$#,##0.00") & "</td>"
+                    Else
+                        HTML = HTML & "<td>" & cellValue & "</td>"
+                    End If
+                Case Else
+                    HTML = HTML & "<td>" & cellValue & "</td>"
+            End Select
+
+            colIndex = colIndex + 1
+        Next fld
+        HTML = HTML & "</tr>"
+        rs.MoveNext
+    Loop
+
+    HTML = HTML & "</table>"
+
+    rs.Close
+    Set rs = Nothing
+
+    BuildHTMLTableFromQuery = HTML
+End Function
+
+Function GetOutlookSignature() As String
+    Dim SigPath As String
+    Dim FSO As Object
+    Dim f As Object
+    Dim Signature As String
+
+    SigPath = Environ$("APPDATA") & "\Microsoft\Signatures\"
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+
+    For Each f In FSO.GetFolder(SigPath).Files
+        If LCase(Right(f.Name, 4)) = ".htm" Then
+            Signature = FSO.OpenTextFile(f.Path, 1).ReadAll
+            Exit For
+        End If
+    Next f
+
+    GetOutlookSignature = Signature
+End Function
